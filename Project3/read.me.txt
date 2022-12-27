@@ -1,1 +1,2 @@
-
+The goals of the project is to predict stock price for Novartis and see if there are any profitable strategies based on the patterns captured, using 2015 stock price data, using Arima and ETS methods.
+Please see https://rpubs.com/jeffreywwang/987552 for the outputs
