@@ -1,0 +1,174 @@
+---
+title: "Project 3"
+author: "Jeffrey  Wang"
+date: "2022-12-25"
+output: html_document
+---
+
+# Time series project III. - Stock price prediction
+
+In this project, I used ARIMA and ETS model to predict Novartis's stock price, using the stock price in 2015.
+
+```{r}
+#Set the language used in the output 
+Sys.setlocale("LC_TIME","C")
+```
+
+
+```{r}
+#Load in the library needed
+library(quantmod)
+```
+
+## Get the historical stock price from Yahoo finance
+
+```{r}
+novartis = getSymbols("NVS", auto.assign = F,
+                      from = "2015-01-01", to = "2016-01-01")
+plot(as.ts(novartis$NVS.Open))
+```
+
+Overall, the line plot shows that the stock price has a clear trend pattern, but the seasonal pattern is unclear.
+
+
+```{r}
+#Accomandate with finacial data's irregularly spaced
+chartSeries(novartis,type = 'line')
+```
+
+This plot shows the price skipping the sotck market close days, and below is the transaction volumes.
+
+
+```{r}
+library(forecast)
+ggtsdisplay(novartis$NVS.Open)
+```
+
+From the ACF plot, there's a clear auto-correlated pattern. But it's hard to find the cut point for setting the AC parameter for arima models. On the other hand, based on the PACF plot, the is a clear cut-point when lag equals 1, thus the p should be equal to 1.
+
+## Model construction
+
+```{r}
+#ARIMA model
+novartsarima = auto.arima(novartis$NVS.Open,
+                          stepwise = T,
+                          approximation = F,
+                          trace =T)
+novartsarima
+```
+
+The auto arima function gave us the most suitable model, which is ARIMA(0,1,1), however, this model didn't account for any auto-correlated relationship in our data, and it's worthwhile to take a look at the model including auto-correlated relationship since we did capture it in the PACF plot.
+
+```{r}
+#ARIMA model 2: with autoregressive part
+novartsarima2 = Arima(novartis$NVS.Open, order = c(1,1,1))
+novartsarima2
+```
+Here's the summary of the arima(1,1,1) model, the AIC was slightly higher but still close to that of what the auto arima function picked for us.
+
+```{r}
+#Forecast using the 2 arima
+plot(forecast(novartsarima, h = 20))
+plot(forecast(novartsarima2, h = 20))
+```
+
+The difference between the predicted price of the two models is little. The only difference is the confidence interval, arima(0,1,1) has a larger confidence interval. And that's because ARIMA model assumed that the last observation is indicative of the next one. Prior observations don't matter much.
+
+```{r}
+#ETS
+novartisets = ets(novartis$NVS.Open)
+plot(forecast(novartisets, h = 20))
+```
+
+The result of the ETS model was also similar to the previous two models.
+
+
+## Convert to a regular time series
+
+Since the stock market closes during holidays and weekends, the stock price is not regularly spaced. Fixing this issue could bring us a more robust result.
+
+1. First, transform the data into a data frame format
+2. Create a df column of complete dates in 2015
+3. Merge the two, and find out which days are missing
+4. Remove weekends, since there should not be any transactions on weekends.
+5. For the rest missing values, impute them
+
+```{r}
+#1. Conversion to dataframe
+novartis = as.data.frame(novartis)
+
+# Adding the rownames as date
+novartis$Date = rownames(novartis)
+novartis$Date = as.Date(novartis$Date)
+head(novartis)
+```
+
+```{r}
+#2. Creating the date column of complete dates in 2015
+mydates = seq.Date(from = as.Date("2015-01-01"), 
+                to = as.Date("2016-01-01"), 
+                by = 1)
+
+# Converting to a df (required for the merge)
+mydates = data.frame(Date = mydates)
+```
+
+
+```{r}
+#3. Merge novartis with 'mydates'
+mydata = merge(novartis, mydates, by = "Date", all.y = T) #Default is full join
+```
+
+
+```{r}
+# 3.9 Removing initial days to start on monday, since 1/1/2015 is Thursday
+mydata = mydata[5:366,]
+```
+
+
+```{r}
+#4. Removing wekends,
+## Sundays
+mydata = mydata[-(seq(from = 7, to = nrow(mydata), by = 7)),]
+## Saturdays
+mydata = mydata[-(seq(from = 6, to = nrow(mydata), by = 6)),]
+```
+
+
+```{r}
+#5. Impute with last observation
+mydata = na.locf(mydata)
+```
+
+
+## Which days are the ones best to buy or sell?
+
+After preprocessing the data, now it's time to look at the price pattern and find the best sell/buy date for Novartis stock.
+
+
+```{r}
+# Putting the closeprice into a weekly time series
+highestprice = ts(as.numeric(mydata$NVS.High), 
+                  frequency = 5)
+```
+
+
+```{r}
+# Various plots
+seasonplot(highestprice, season.labels = c("Mon", "Tue", "Wed", "Thu", "Fri"))
+monthplot(highestprice)
+monthplot(highestprice, base = median, col.base = "red")
+plot(stl(highestprice, s.window = "periodic"))
+```
+
+From the season plot, the stock price did not show a clear seasonal pattern - there' probably not a specific day of the week to sell or buy the stock overall. Though, we did see a lower price on Wednesdays.
+
+```{r}
+# Comparison with the low prices
+lowestprice = ts(as.numeric(mydata$NVS.Low), 
+                 frequency = 5)
+monthplot(lowestprice, base = median, col.base = "red")
+monthplot(highestprice, base = median, col.base = "red")
+```
+
+It seems the same for the low-price pattern. The seasonal pattern was not clear, so buying/selling stock on a specific day is probably not a good strategy. But Wednesday could be the one day to buy the stock since on average the price is slightly lower compared to other days.
