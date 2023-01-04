@@ -1,0 +1,125 @@
+---
+title: "Time Series IV - Revenue Prediction using Neural Nets and Interactive Plot"
+author: "Jeffrey  Wang"
+date: "2022-12-27"
+output: html_document
+---
+
+In this project, I predict and plot the revenue of Oregon Campsite using the Neural Net method and R Shiny. This method works well with non-linear pattern relationships between revenue at different time points.
+
+And the steps are shown below,
+
+Step 1: Load and Preprocessing the data and convert to time series format
+
+Step 2: Construct the time series model with the nnetar function and forecast the revenue
+
+Step 3: Visualize and create an interactive plot using R shiny
+
+
+
+### Step 1
+```{r}
+# Import Data Camping_Revenue as revenue
+revenue <- read.csv("/Users/User/Desktop/learning/time series/camping_revenue_97_17.csv", sep = '"', header = F)
+```
+
+```{r}
+# Chopping off the useless quotes at 2 positions
+library(tidyr)
+revenue <- separate(revenue, col = V2, 
+                    sep = -1,into = c("data", "comma"))
+```
+
+```{r}
+#Keep the useful columns only
+revenue <- revenue[c("data","V4")]
+```
+
+```{r}
+#Conversion to time series
+myts <- ts(as.numeric(revenue$V4),
+           start = 1997, frequency = 12)
+```
+```{r}
+# data is still not clean (outliers and NAs)
+summary(myts)
+
+```
+
+```{r}
+# all in one cleaning tool
+library(forecast)
+myts <- tsclean(myts) #outliers and NAs
+```
+
+```{r}
+# check the data
+summary(myts)
+plot(myts)
+```
+
+The plot above is the monthly revenue for Oregon Campsite since 1997. As can be seen, the seasonal pattern is clear; summers tend to have higher revenue than winters. In addition, the revenue increases yearly. Both trend and seasonal patterns should be taken into consideration when predicting revenue.
+
+
+### Step 2
+```{r}
+#set up a Neural Network model
+mynnetar <- nnetar(myts)
+```
+
+```{r}
+mynnetar
+```
+The model is a Seasonal NNAR(3,1,2) model, a third order auto-corelation model with one seasonal lag term, which is in align with our observation.
+
+```{r}
+#forecasting 3 years' revenue with the model
+nnetforecast <- forecast(mynnetar, h = 36, 
+                         PI = T # prediction interval
+                         )
+```
+
+```{r}
+#Visualized the foretasted value
+library(ggplot2)
+autoplot(nnetforecast)
+```
+As the pattern prior to 2018, the predicted revenue follows an upward trend and peaks in summer.
+
+### Step 3 
+```{r}
+# data we need for the graph
+data <- nnetforecast$x
+lower <- nnetforecast$lower[,2] # 95% CI
+upper <- nnetforecast$upper[,2]
+pforecast <- nnetforecast$mean
+
+mydata <- cbind(data, lower, upper,
+                pforecast)
+```
+
+```{r}
+library(dygraphs)
+
+#Fetch the dataset and create the title
+dygraph(mydata, main = "Oregon Campsite Restaurant") %>% 
+  # the zoom-in tool
+  dyRangeSelector() %>% 
+  #map the time series data
+  dySeries(name = "data", label = "Revenue Data") %>%
+  #map the predicted data
+  dySeries(c("lower","pforecast","upper"), label = "Revenue Forecast") %>%
+  #Add the legend
+  dyLegend(show = "always", hideOnMouseOut = FALSE) %>%
+  #y axis
+  dyAxis("y", label = "Monthly Revenue USD") %>%
+  #highlight effect
+  dyHighlight(highlightCircleSize = 5,
+              highlightSeriesOpts = list(strokeWidth = 2)) %>%
+  #axis and grid line color
+  dyOptions(axisLineColor = "navy", gridLineColor = "grey") %>%
+  #annotation: the CF flag on the bottome
+  dyAnnotation("2010-8-1", text = "CF", tooltip = "Camp Festival", attachAtBottom = T)
+```
+
+
